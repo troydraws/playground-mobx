@@ -5,7 +5,7 @@ import { Observer } from 'mobx-react-lite';
 
 /**
  * 
- * Comparisons of... reassigning various type of stuff with MobX 6.0.4 vs 6.1.1
+ * Comparisons of... reassigning various type of stuff to an observable with MobX 6.0.4 vs 6.1.1
  * 
  */
 
