@@ -34,7 +34,7 @@ reaction(
 
 // replace action
 setTimeout(action(() => {
-  console.log('#actionFunction');
+  console.log('#action');
   console.log(`isAction: ${isAction(o.actionFunction)}`)
   console.log(`isObservableProp: ${isObservableProp(o, 'actionFunction')}`)
   console.log('* reassigning action *')
@@ -48,7 +48,7 @@ setTimeout(action(() => {
 
 // replace authored-to-be normal function
 setTimeout(action(() => {
-  console.log('#normalFunction');
+  console.log('#normal');
   console.log(`isAction: ${isAction(o.normalFunction)}`)
   console.log(`isObservableProp: ${isObservableProp(o, 'normalFunction')}`)
   console.log('* reassigning normal function *')
@@ -62,13 +62,13 @@ setTimeout(action(() => {
 
 // replace flow
 setTimeout(action(() => {
-  console.log('#flowFunction');
+  console.log('#flow');
   console.log(`isAction: ${isAction(o.flowFunction)}`)
   console.log(`isObservableProp: ${isObservableProp(o, 'flowFunction')}`)
+  console.log('* reassigning flow *');
   o.flowFunction = flow(function* () {
     return 'this is a new flow';
   }) // <- works with Mobx 6.0.4 and triggers reaction, fails with Mobx 6.1.1
-  console.log('* reassigning flow *');
   console.log(`isAction: ${isAction(o.flowFunction)}`)
   console.log(`isObservableProp: ${isObservableProp(o, 'flowFunction')}`)
 }), 3000);
