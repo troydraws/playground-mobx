@@ -14,7 +14,7 @@ type FButtonProps = {
 
 const FButton: React.FC<FButtonProps> = props => {
 
-  const p = useProps(props, {}, 'FButton');
+  const p = useProps(props);
 
   const s = useStore(() => ({
     get color() {
@@ -31,12 +31,12 @@ const FButton: React.FC<FButtonProps> = props => {
         padding: '1em',
       }
     }
-  }), {}, 'FButton');
+  }));
 
   useOnMount(() => {
     if (p.debug) {
-      p.$debug?.();
-      s.$debug?.();
+      p.$$debug?.();
+      s.$$debug?.();
     }
   })
 

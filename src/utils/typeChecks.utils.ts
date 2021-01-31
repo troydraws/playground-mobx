@@ -1,3 +1,6 @@
+export function isString(v: any): v is string {
+  return typeof v === 'string';
+}
 /**
  * checks if given value is an object. `null` will return false, and arrays will return true;
  */

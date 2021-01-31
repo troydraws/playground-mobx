@@ -1,4 +1,4 @@
-import { computed, isAction, isComputedProp, isObservableProp, makeObservable, observable, runInAction, toJS } from "mobx";
+import { computed, isAction, isComputedProp, isObservableProp, makeObservable, observable, runInAction } from "mobx";
 import { useLocalObservable } from "mobx-react-lite";
 import type { Annotation } from "mobx/dist/internal";
 import { useEffect, useState } from "react";
@@ -44,7 +44,7 @@ export const useProps = <T extends AnyObject = AnyObject>(
 ) => {
 
   const s = useLocalObservable(
-    () => _wrap(current, annotations, debug && `useProps@${debug}`),
+    () => _wrap(current, annotations, `useProps${debug ? `@${debug}` : ''}`),
     _mobxUtilInternalAnnotation
   );
 
@@ -72,7 +72,7 @@ export const useStore = <T extends AnyObject = AnyObject>(
     () => makeObservableStore(
       initializer(), 
       annotations, 
-      debug && `useStore@${debug}`
+      `useStore${debug ? `@${debug}` : ''}`
     ),
   )[0];
 
@@ -112,11 +112,12 @@ export type ObservableStoreInternalState<T extends AnyObject = AnyObject> = {
   getReadonlyKeys: () => StringKeyList<T>,
   getComputedKeys: () => StringKeyList<T>,
   getActionKeys: () => StringKeyList<T>,
+  getFlowKeys: () => StringKeyList<T>,
   getWritableKeys: () => StringKeyList<T>,
 }
 export type ObservableStore<T extends AnyObject = AnyObject> = T & {
-  $getInternalState?: () => ObservableStoreInternalState<T>;
-  $debug?: () => void;
+  $$getInternalState?: () => ObservableStoreInternalState<T>;
+  $$debug?: () => void;
 }
 
 /**
@@ -124,19 +125,20 @@ export type ObservableStore<T extends AnyObject = AnyObject> = T & {
  */
 const _wrap = <T extends AnyObject = AnyObject>(
   object: T,
-  annotations: AuthorableAnnotationMap<T> = {},
+  _annotations: AuthorableAnnotationMap<T> = {},
   debug?: string,
 ) => {
 
   const keys = Object.keys(object) as StringKeyList<T>;
   const descriptors = Object.getOwnPropertyDescriptors(object);
+  const annotations = { ..._annotations };
 
   Object.entries(descriptors).forEach(([key, desc]) => {
     if (key in annotations) return;
     // must use get/set to filter out getter/setters first because they might refer to the constructed object,
     // and checking their values directly will result in error "cannot access x before initialisation".
-    if (desc.get) return computed
-    if (desc.set) return false // ignore lone setter
+    if (desc.get) return computed;
+    if (desc.set) return false; // ignore lone setter
     if (_presumeIsComponentProp(key) || isFunction(desc.value)) {
       annotations[key as StringKeyOf<T>] = observable.ref;
       return;
@@ -154,26 +156,27 @@ const _wrap = <T extends AnyObject = AnyObject>(
     getNonObservableKeys: () => keys.filter(k => !isObservableProp(value, k)),
     getComputedKeys: () => keys.filter(k => isComputedProp(value, k)),
     getActionKeys: () => keys.filter(k => isAction(value[k])),
+    getFlowKeys: () => keys.filter(k => isFlow(value[k])),
     getWritableKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable !== false),
     getReadonlyKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable === false),
   };
 
   if (isDevelopment) {
     /** exposes internal state to external environments, only available in dev builds */
-    s.value.$getInternalState = () => s;
-    s.value.$debug = () => {
-      console.log(`%c*** [${debug}] debug info  ***`, 'color: green');
-      console.log('internal state: ', s);
-      console.log('internal state snapshot: ', toJS(s));
+    s.value.$$getInternalState = () => s;
+    s.value.$$debug = () => {
+      console.log(`%c*** [${debug ?? 'observable'}] debug info  ***`, 'color: green');
+      console.log(s);
       console.log('auto-determined annotations:', s?.annotations);
-      console.table({
-        '- observable:': s?.getObservableKeys().join(' '),
-        '- non-observable:': s?.getNonObservableKeys().join(' '),
-        '- computeds:': s?.getComputedKeys().join(' '),
-        '- actions & flows:': s?.getActionKeys().join(' '),
-        '- writable:': s?.getWritableKeys().join(' '),
-        '- readonly:': s?.getReadonlyKeys().join(' '),
-      })
+      console.group('keys grouped by:');
+      console.log('    observable :', s?.getObservableKeys().join(' '));
+      console.log('non-observable :', s?.getNonObservableKeys().join(' '));
+      console.log('     computeds :', s?.getComputedKeys().join(' '));
+      console.log('       actions :', s?.getActionKeys().join(' '));
+      console.log('         flows :', s?.getFlowKeys().join(' '));
+      console.log('      writable :', s?.getWritableKeys().join(' '));
+      console.log('      readonly :', s?.getReadonlyKeys().join(' '));
+      console.groupEnd();
     }
   }
 
@@ -199,3 +202,6 @@ const _mobxUtilInternalAnnotation: AuthorableAnnotationMap = {
   getDescriptors: false,
 };
 
+export function isFlow(fn: any): boolean {
+  return fn?.isMobXFlow === true
+}

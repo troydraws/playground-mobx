@@ -1,4 +1,4 @@
-import { action } from 'mobx';
+import { action, flow } from 'mobx';
 import { Observer } from 'mobx-react-lite';
 import React from 'react';
 import './App.css';
@@ -17,7 +17,7 @@ import { useStore } from './utils/mobx.utils';
 function App() {
   const s = useStore(() => ({
     buttonTitle: 'button title',
-    changeButtonTitle: action(() => {
+    changeButtonTitle: flow(function * () {
       s.buttonTitle = s.buttonTitle + ' new';
     }),
     buttonDisabled: false,
