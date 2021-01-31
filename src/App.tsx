@@ -1,11 +1,12 @@
 import { action } from 'mobx';
-import { Observer, useLocalObservable } from 'mobx-react-lite';
+import { Observer } from 'mobx-react-lite';
 import React from 'react';
 import './App.css';
 import FButton from './components/FButton';
 import IconGClef from './components/IconGClef';
 import IconHand from './components/IconHand';
 import { NoOp } from './utils/functions.utils';
+import { useStore } from './utils/mobx.utils';
 
 // const o = observable({
 //   text: 'string',
@@ -14,7 +15,7 @@ import { NoOp } from './utils/functions.utils';
 // }, { text: })
 
 function App() {
-  const s = useLocalObservable(() => ({
+  const s = useStore(() => ({
     buttonTitle: 'button title',
     changeButtonTitle: action(() => {
       s.buttonTitle = s.buttonTitle + ' new';
@@ -22,7 +23,10 @@ function App() {
     buttonDisabled: false,
     toggleDisableButton: action(() => {
       s.buttonDisabled = !s.buttonDisabled
-    })
+    }),
+    simpleLog: () => {
+      console.log('this');
+    }
   }))
   return <Observer children={() => (
     <div className="App">
@@ -32,7 +36,9 @@ function App() {
         renderBeforeLabel={s.buttonDisabled ? IconHand : IconGClef}
         disabled={s.buttonDisabled}
         debug
-      ><p>{s.buttonTitle}</p></FButton>
+      >{s.buttonTitle}</FButton>
+      <br />
+      <br />
       <button onClick={s.toggleDisableButton}>
         Toggle Disable
       </button>

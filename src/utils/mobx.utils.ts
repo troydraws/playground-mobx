@@ -1,17 +1,14 @@
-import { isAction, isObservableProp, observable, runInAction } from "mobx";
+import { computed, isAction, isComputedProp, isObservableProp, makeObservable, observable, runInAction, toJS } from "mobx";
 import { useLocalObservable } from "mobx-react-lite";
 import type { Annotation } from "mobx/dist/internal";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { isDevelopment } from "./env.utils";
-
-export type AuthorableAnnotationValue = true | false | Annotation;
-export type AuthorableAnnotationMap<T extends AnyObject = AnyObject> = Partial<Record<StringKeyOf<T>, AuthorableAnnotationValue>>;
+import { isFunction } from "./typeChecks.utils";
 
 /**
  * 
- * *** Experimental ***
- * 
  * A helper function to convert (typically) props object into an observable state object.
+ * Everytime the component rerenders, the writable fields in the new set of props will be 
  * In summary, all props will be made observable, but functions and components will be made with `observable.ref`, while normal values with `observable.deep`.
  * 
  * To help the function determine which props should be deep observable and which ones should only observe ref changes,
@@ -43,50 +40,146 @@ export type AuthorableAnnotationMap<T extends AnyObject = AnyObject> = Partial<R
 export const useProps = <T extends AnyObject = AnyObject>(
   current: T,
   annotations: AuthorableAnnotationMap<T> = {},
+  debug?: string,
 ) => {
 
-  const s = useLocalObservable(() => {
-
-    const keys = Object.keys(current) as StringKeyOf<T>[]
-
-    const deepObservableProps = [...keys];
-    const refObservableProps = keys.filter(k => typeof k === 'function' || _presumeIsComponentProp(k))
-    refObservableProps.forEach(k => {
-      if (!(k in annotations)) annotations[k] = observable.ref;
-      if (annotations[k]) deepObservableProps.splice(deepObservableProps.indexOf(k), 1);
-    })
-    deepObservableProps.forEach(k => {
-      if (!(k in annotations)) annotations[k] = observable;
-    })
-
-    const value = observable({
-      ...current,
-      /** exposes internal state to external environments, only available in dev builds */
-      $getInternalState: () => isDevelopment ? s : undefined,
-    }, annotations as any)
-
-    return { // hook internal state
-      value, // exposed to component
-      autoDetermined: {
-        deepObservableProps,
-        refObservableProps,
-        annotations,
-      },
-      observableProps: keys.filter(k => isObservableProp(value, k)) as StringKeyOf<T>[],
-      nonObservableProps: keys.filter(k => !isObservableProp(value, k)) as StringKeyOf<T>[],
-      actionProps: keys.filter(k => isAction(value[k])) as StringKeyOf<T>[],
-      readonlyProps: keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable === false) as StringKeyOf<T>[],
-      getDescriptors: () => Object.getOwnPropertyDescriptors(value),
-    }
-  }, _propsInternalAnnotation)
+  const s = useLocalObservable(
+    () => _wrap(current, annotations, debug && `useProps@${debug}`),
+    _mobxUtilInternalAnnotation
+  );
 
   useEffect(() => {
     runInAction(() => {
-      s.observableProps.forEach(key => (s.value as T)[key] = current[key]);
+      s.getObservableKeys().forEach(key => (s.value as T)[key] = current[key]);
     });
+  });
+
+  return s.value;
+
+}
+
+/**
+ * A similar helper to MobX's useLocalObservable,
+ * but with automatic annotations
+ */
+export const useStore = <T extends AnyObject = AnyObject>(
+  initializer: () => T,
+  annotations: AuthorableAnnotationMap<T> = {},
+  debug?: string,
+) => {
+
+  return useState(
+    () => makeObservableStore(
+      initializer(), 
+      annotations, 
+      debug && `useStore@${debug}`
+    ),
+  )[0];
+
+}
+
+/**
+ * 
+ * Performs similar function to `useProps` with automatic annotations,
+ * but returns a standalone observable object instead of a state in a component.
+ * 
+ * @param current: the props object.
+ * @param annotations: Provide explicitly defined MobX observable annotations to override the auto-detected annotations by this utility function.
+ * 
+ */
+export const makeObservableStore = <T extends AnyObject = AnyObject>(
+  object: T,
+  annotations: AuthorableAnnotationMap<T> = {},
+  debug?: string,
+) => makeObservable(
+  _wrap(object, annotations, debug),
+  _mobxUtilInternalAnnotation,
+).value;
+
+
+// ------------------------
+// types & internal helpers
+// ------------------------
+
+export type AuthorableAnnotationValue = true | false | Annotation;
+export type AuthorableAnnotationMap<T extends AnyObject = AnyObject> = Partial<Record<StringKeyOf<T>, AuthorableAnnotationValue>>;
+
+export type ObservableStoreInternalState<T extends AnyObject = AnyObject> = {
+  value: ObservableStore<T>
+  annotations: AuthorableAnnotationMap<T>,
+  getObservableKeys: () => StringKeyList<T>,
+  getNonObservableKeys: () => StringKeyList<T>,
+  getReadonlyKeys: () => StringKeyList<T>,
+  getComputedKeys: () => StringKeyList<T>,
+  getActionKeys: () => StringKeyList<T>,
+  getWritableKeys: () => StringKeyList<T>,
+}
+export type ObservableStore<T extends AnyObject = AnyObject> = T & {
+  $getInternalState?: () => ObservableStoreInternalState<T>;
+  $debug?: () => void;
+}
+
+/**
+ * This module's internal method to prepare a static object before making it observable with our custom annotations.
+ */
+const _wrap = <T extends AnyObject = AnyObject>(
+  object: T,
+  annotations: AuthorableAnnotationMap<T> = {},
+  debug?: string,
+) => {
+
+  const keys = Object.keys(object) as StringKeyList<T>;
+  const descriptors = Object.getOwnPropertyDescriptors(object);
+
+  Object.entries(descriptors).forEach(([key, desc]) => {
+    if (key in annotations) return;
+    // must use get/set to filter out getter/setters first because they might refer to the constructed object,
+    // and checking their values directly will result in error "cannot access x before initialisation".
+    if (desc.get) return computed
+    if (desc.set) return false // ignore lone setter
+    if (_presumeIsComponentProp(key) || isFunction(desc.value)) {
+      annotations[key as StringKeyOf<T>] = observable.ref;
+      return;
+    }
+    // leave the rest to mobx to figure out
+    annotations[key as StringKeyOf<T>] = true;
   })
 
-  return s.value
+  const value = observable(object, annotations as any, { autoBind: true });
+
+  const s: ObservableStoreInternalState<T> = { // hook internal state
+    value: value as ObservableStore<T>, // exposed to component
+    annotations,
+    getObservableKeys: () => keys.filter(k => isObservableProp(value, k)),
+    getNonObservableKeys: () => keys.filter(k => !isObservableProp(value, k)),
+    getComputedKeys: () => keys.filter(k => isComputedProp(value, k)),
+    getActionKeys: () => keys.filter(k => isAction(value[k])),
+    getWritableKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable !== false),
+    getReadonlyKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable === false),
+  };
+
+  if (isDevelopment) {
+    /** exposes internal state to external environments, only available in dev builds */
+    s.value.$getInternalState = () => s;
+    s.value.$debug = () => {
+      console.log(`%c*** [${debug}] debug info  ***`, 'color: green');
+      console.log('internal state: ', s);
+      console.log('internal state snapshot: ', toJS(s));
+      console.log('auto-determined annotations:', s?.annotations);
+      console.table({
+        '- observable:': s?.getObservableKeys().join(' '),
+        '- non-observable:': s?.getNonObservableKeys().join(' '),
+        '- computeds:': s?.getComputedKeys().join(' '),
+        '- actions & flows:': s?.getActionKeys().join(' '),
+        '- writable:': s?.getWritableKeys().join(' '),
+        '- readonly:': s?.getReadonlyKeys().join(' '),
+      })
+    }
+  }
+
+  // if (debug) console.log(debug, s);
+
+  return s;
 
 }
 
@@ -96,16 +189,13 @@ const _presumeIsComponentProp = (keyName: string) => (
   keyName.match(/Renderer$/)
 );
 
-const _propsInternalAnnotation: AuthorableAnnotationMap = {
+const _mobxUtilInternalAnnotation: AuthorableAnnotationMap = {
   value: observable,
-  autoDetermined: false,
-  observableProps: false,
-  readonlyProps: false,
-  actionProps: false,
-  nonObservableProps: false
+  annotations: false,
+  observableKeys: false,
+  nonObservableKeys: false,
+  readonlyKeys: false,
+  actionKeys: false,
+  getDescriptors: false,
 };
 
-/**
- * An alias MobX's useLocalObservable hook
- */
-export const useState = useLocalObservable;
