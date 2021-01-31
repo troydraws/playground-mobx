@@ -167,15 +167,15 @@ const _wrap = <T extends AnyObject = AnyObject>(
     s.value.$$debug = () => {
       console.log(`%c*** [${debug ?? 'observable'}] debug info  ***`, 'color: green');
       console.log(s);
-      console.log('auto-determined annotations:', s?.annotations);
+      console.log('auto-determined annotations:', s.annotations);
       console.group('keys grouped by:');
-      console.log('    observable :', s?.getObservableKeys().join(' '));
-      console.log('non-observable :', s?.getNonObservableKeys().join(' '));
-      console.log('     computeds :', s?.getComputedKeys().join(' '));
-      console.log('       actions :', s?.getActionKeys().join(' '));
-      console.log('         flows :', s?.getFlowKeys().join(' '));
-      console.log('      writable :', s?.getWritableKeys().join(' '));
-      console.log('      readonly :', s?.getReadonlyKeys().join(' '));
+      console.log(`%c    observable : ${s!.getObservableKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%cnon-observable : ${s!.getNonObservableKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%c     computeds : ${s!.getComputedKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%c       actions : ${s!.getActionKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%c         flows : ${s!.getFlowKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%c      writable : ${s!.getWritableKeys().join(' ')}`, 'font-family: monospace');
+      console.log(`%c      readonly : ${s!.getReadonlyKeys().join(' ')}`, 'font-family: monospace');
       console.groupEnd();
     }
   }
