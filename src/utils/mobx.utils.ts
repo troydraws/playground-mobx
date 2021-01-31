@@ -1,4 +1,4 @@
-import { computed, isAction, isComputedProp, isObservableProp, makeObservable, observable, runInAction } from "mobx";
+import { computed, extendObservable, isAction, isComputedProp, isObservableProp, observable, runInAction } from "mobx";
 import { useLocalObservable } from "mobx-react-lite";
 import type { Annotation } from "mobx/dist/internal";
 import { useEffect, useState } from "react";
@@ -7,14 +7,13 @@ import { isFunction } from "./typeChecks.utils";
 
 /**
  * 
- * A helper function to convert (typically) props object into an observable state object.
- * Everytime the component rerenders, the writable fields in the new set of props will be 
- * In summary, all props will be made observable, but functions and components will be made with `observable.ref`, while normal values with `observable.deep`.
+ * A helper function to convert (typically) props object into an MobX observable state object.
+ * Everytime the component rerenders, the writable fields in the new set of props will be updated.
+ * All props will be made observable and writable, but functions and components will be made with `observable.ref`, while other values with `observable.deep`.
  * 
  * To help the function determine which props should be deep observable and which ones should only observe ref changes,
- * strictly use the following naming convention for props that could potentially contain any React components (class / functional / lazy / memoized):
- * - Prefix with `render-`, or
- * - Suffix with `Renderer`,
+ * strictly use the following naming conventions for props that could potentially contain any React components (class / functional / lazy / memoized):
+ * - Capitalize first letter, such as `StartSlot`. (The regex to match this is `/^[A-Z]/`).
  * - Name it exactly `children`, and write JSX children as a function.
  * 
  * [Important]: For any non-component props that expects a function, 
@@ -24,39 +23,48 @@ import { isFunction } from "./typeChecks.utils";
  * @param annotations: Provide explicitly defined MobX observable annotations to override the auto-detected annotations by this utility function.
  * @see [Mobx Documentation: Observable State](https://mobx.js.org/observable-state.html)
  * 
+ * Note that "useProps" is only necessary if you are using props in a local MobX store.
+ * If props are only used in rendering function, you can just use the original props object unchanged and let React handle the re-rendering.
+ * This helper is really created to make it easier to write code and more consistent,
+ * and does not necessarily mean better performance.
+ * Although in practice, no significant performance hit has been observed. (* to be systematically tested)
+ * 
  * Rationale: By default, functions will be converted into non-writable, non-observable actions in MobX, 
- * which is not what we desire for an observable props object.
- * We want to keep functions in props as "things (state)" and not just "logic",
- * and keep them writable and observable.
+ * as in MobX "logic" and "derivations" are by default considered not 'state', thus non-mutable and non-enumerable.
+ * However, for the automatic props conversion, we want to keep functions in props as "things (state)" and not just "logic",
+ * and keep them writable and observable, because they might well change during a rerender.
  * However, simply using default observable behaviour on components will recursively make them observable,
  * creating a new proxied object and causing some type checks of React component type to fail.
  * So component class / functional component / lazy / memoized components should never be converted into observables,
  * But the *reference* to them in our props state object should.
  * It is not possible to tell apart from code itself whether a function was intended as a functional component,
- * hence strict naming conventions is required.
+ * hence strict naming conventions is required so this helper can recognize them and keep them intact.
  * 
  */
 
 export const useProps = <T extends AnyObject = AnyObject>(
   current: T,
   annotations: AuthorableAnnotationMap<T> = {},
-  debug?: string,
+  options?: ObservableWrapperOptions,
 ) => {
 
   const s = useLocalObservable(
-    () => _wrap(current, annotations, `useProps${debug ? `@${debug}` : ''}`),
-    _mobxUtilInternalAnnotation
+    () => _wrap(current, annotations, {
+      ...options,
+      name: `useProps${options?.name ? `@${options?.name}` : ''}`,
+    })
   );
 
   useEffect(() => {
     runInAction(() => {
-      s.getObservableKeys().forEach(key => (s.value as T)[key] = current[key]);
+      s.$$writableKeys.forEach(key => (s as T)[key] = current[key]);
     });
   });
 
-  return s.value;
+  return s;
 
 }
+
 
 /**
  * A similar helper to MobX's useLocalObservable,
@@ -65,18 +73,18 @@ export const useProps = <T extends AnyObject = AnyObject>(
 export const useStore = <T extends AnyObject = AnyObject>(
   initializer: () => T,
   annotations: AuthorableAnnotationMap<T> = {},
-  debug?: string,
-) => {
+  options?: ObservableWrapperOptions,
+) => useState(
+  () => makeObservableStore(
+    initializer(), 
+    annotations, 
+    {
+      ...options,
+      name: `useStore${options?.name ? `@${options?.name}` : ''}`
+    }
+  ),
+)[0];
 
-  return useState(
-    () => makeObservableStore(
-      initializer(), 
-      annotations, 
-      `useStore${debug ? `@${debug}` : ''}`
-    ),
-  )[0];
-
-}
 
 /**
  * 
@@ -90,11 +98,8 @@ export const useStore = <T extends AnyObject = AnyObject>(
 export const makeObservableStore = <T extends AnyObject = AnyObject>(
   object: T,
   annotations: AuthorableAnnotationMap<T> = {},
-  debug?: string,
-) => makeObservable(
-  _wrap(object, annotations, debug),
-  _mobxUtilInternalAnnotation,
-).value;
+  options?: ObservableWrapperOptions,
+) => _wrap(object, annotations, options);
 
 
 // ------------------------
@@ -103,20 +108,14 @@ export const makeObservableStore = <T extends AnyObject = AnyObject>(
 
 export type AuthorableAnnotationValue = true | false | Annotation;
 export type AuthorableAnnotationMap<T extends AnyObject = AnyObject> = Partial<Record<StringKeyOf<T>, AuthorableAnnotationValue>>;
-
-export type ObservableStoreInternalState<T extends AnyObject = AnyObject> = {
-  value: ObservableStore<T>
-  annotations: AuthorableAnnotationMap<T>,
-  getObservableKeys: () => StringKeyList<T>,
-  getNonObservableKeys: () => StringKeyList<T>,
-  getReadonlyKeys: () => StringKeyList<T>,
-  getComputedKeys: () => StringKeyList<T>,
-  getActionKeys: () => StringKeyList<T>,
-  getFlowKeys: () => StringKeyList<T>,
-  getWritableKeys: () => StringKeyList<T>,
+export type ObservableWrapperOptions = {
+  name?: string,
+  proxy?: boolean,
+  autoBind?: boolean,
 }
+
 export type ObservableStore<T extends AnyObject = AnyObject> = T & {
-  $$getInternalState?: () => ObservableStoreInternalState<T>;
+  $$writableKeys: StringKeyList<T>,
   $$debug?: () => void;
 }
 
@@ -124,84 +123,60 @@ export type ObservableStore<T extends AnyObject = AnyObject> = T & {
  * This module's internal method to prepare a static object before making it observable with our custom annotations.
  */
 const _wrap = <T extends AnyObject = AnyObject>(
-  object: T,
-  _annotations: AuthorableAnnotationMap<T> = {},
-  debug?: string,
+  source: T,
+  annotations: AuthorableAnnotationMap<T> = {},
+  options?: ObservableWrapperOptions,
 ) => {
 
-  const keys = Object.keys(object) as StringKeyList<T>;
-  const descriptors = Object.getOwnPropertyDescriptors(object);
-  const annotations = { ..._annotations };
+  const descriptors = Object.getOwnPropertyDescriptors(source);
+  const _annotations = { ...annotations };
 
   Object.entries(descriptors).forEach(([key, desc]) => {
-    if (key in annotations) return;
+    if (key in _annotations) return;
     // must use get/set to filter out getter/setters first because they might refer to the constructed object,
     // and checking their values directly will result in error "cannot access x before initialisation".
     if (desc.get) return computed;
     if (desc.set) return false; // ignore lone setter
-    if (_presumeIsComponentProp(key) || isFunction(desc.value)) {
-      annotations[key as StringKeyOf<T>] = observable.ref;
+    if (_presumePropIsReactComponent(key) || isFunction(desc.value)) {
+      _annotations[key as StringKeyOf<T>] = observable.ref;
       return;
     }
     // leave the rest to mobx to figure out
-    annotations[key as StringKeyOf<T>] = true;
+    _annotations[key as StringKeyOf<T>] = true;
   })
 
-  const value = observable(object, annotations as any, { autoBind: true });
+  const s = observable(source, _annotations as any, options) as ObservableStore<T>;
 
-  const s: ObservableStoreInternalState<T> = { // hook internal state
-    value: value as ObservableStore<T>, // exposed to component
-    annotations,
-    getObservableKeys: () => keys.filter(k => isObservableProp(value, k)),
-    getNonObservableKeys: () => keys.filter(k => !isObservableProp(value, k)),
-    getComputedKeys: () => keys.filter(k => isComputedProp(value, k)),
-    getActionKeys: () => keys.filter(k => isAction(value[k])),
-    getFlowKeys: () => keys.filter(k => isFlow(value[k])),
-    getWritableKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable !== false),
-    getReadonlyKeys: () => keys.filter(k => Object.getOwnPropertyDescriptor(value, k)?.writable === false),
-  };
+  extendObservable(s, {
+    get $$writableKeys() {
+      return Object.entries(source).filter(e => e[1]?.writable !== false).map(e => e[0]);
+    }
+  });
 
   if (isDevelopment) {
-    /** exposes internal state to external environments, only available in dev builds */
-    s.value.$$getInternalState = () => s;
-    s.value.$$debug = () => {
-      console.log(`%c*** [${debug ?? 'observable'}] debug info  ***`, 'color: green');
-      console.log(s);
-      console.log('auto-determined annotations:', s.annotations);
-      console.group('keys grouped by:');
-      console.log(`%c    observable : ${s!.getObservableKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%cnon-observable : ${s!.getNonObservableKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%c     computeds : ${s!.getComputedKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%c       actions : ${s!.getActionKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%c         flows : ${s!.getFlowKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%c      writable : ${s!.getWritableKeys().join(' ')}`, 'font-family: monospace');
-      console.log(`%c      readonly : ${s!.getReadonlyKeys().join(' ')}`, 'font-family: monospace');
-      console.groupEnd();
-    }
+    extendObservable(s, {
+      $$debug: () => {
+        const keys = Object.keys(source) as StringKeyList<T>;
+        console.log(`%c*** [${options?.name ?? 'observable'}] debug info  ***`, 'color: green');
+        console.log(s);
+        console.log('annotations:', _annotations);
+        console.group('keys grouped by:');
+        console.log(`%c    observable : ${keys.filter(k => isObservableProp(s, k)).join(' ')}`, 'font-family: monospace');
+        console.log(`%cnon-observable : ${keys.filter(k => !isObservableProp(s, k)).join(' ')}`, 'font-family: monospace');
+        console.log(`%c     computeds : ${keys.filter(k => isComputedProp(s, k)).join(' ')}`, 'font-family: monospace');
+        console.log(`%c       actions : ${keys.filter(k => isAction(s[k])).join(' ')}`, 'font-family: monospace');
+        console.log(`%c         flows : ${keys.filter(k => isFlow(s[k])).join(' ')}`, 'font-family: monospace');
+        console.log(`%c      writable : ${s!.$$writableKeys.join(' ')}`, 'font-family: monospace');
+        console.log(`%c      readonly : ${keys.filter(k => Object.getOwnPropertyDescriptor(s, k)?.writable === false).join(' ')}`, 'font-family: monospace');
+        console.groupEnd();
+      }
+    })
   }
-
-  // if (debug) console.log(debug, s);
 
   return s;
 
 }
 
-const _presumeIsComponentProp = (keyName: string) => (
-  keyName === 'children' ||
-  keyName.match(/^render[A-Z]/) ||
-  keyName.match(/Renderer$/)
-);
+const _presumePropIsReactComponent = (p: string) => p === 'children' || /^[A-Z]/.test(p);
 
-const _mobxUtilInternalAnnotation: AuthorableAnnotationMap = {
-  value: observable,
-  annotations: false,
-  observableKeys: false,
-  nonObservableKeys: false,
-  readonlyKeys: false,
-  actionKeys: false,
-  getDescriptors: false,
-};
-
-export function isFlow(fn: any): boolean {
-  return fn?.isMobXFlow === true
-}
+export const isFlow = (fn: any) => fn?.isMobXFlow === true;

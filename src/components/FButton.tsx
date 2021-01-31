@@ -6,7 +6,7 @@ import { useProps, useStore } from '../utils/mobx.utils';
 
 type FButtonProps = {
   title?: string,
-  renderBeforeLabel?: Renderable,
+  BeforeLabel?: Renderable,
   onClick?: (e: React.MouseEvent) => void,
   disabled?: boolean,
   debug?: boolean,
@@ -47,7 +47,7 @@ const FButton: React.FC<FButtonProps> = props => {
       data-disabled={p.disabled}
       style={s.style}
     >
-      { p.renderBeforeLabel && renderRenderable(p.renderBeforeLabel) }
+      { p.BeforeLabel && renderRenderable(p.BeforeLabel) }
       { props.children }
     </button>
   )} />

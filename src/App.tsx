@@ -33,7 +33,7 @@ function App() {
       <FButton
         title="Button Title"
         onClick={s.buttonDisabled ? NoOp : s.changeButtonTitle}
-        renderBeforeLabel={s.buttonDisabled ? IconHand : IconGClef}
+        BeforeLabel={s.buttonDisabled ? IconHand : IconGClef}
         disabled={s.buttonDisabled}
         debug
       >{s.buttonTitle}</FButton>
