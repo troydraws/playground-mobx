@@ -1,0 +1,6 @@
+{
+  "workbench.colorTheme": "paddy-eucalyptus-upright",
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true
+  }
+}
