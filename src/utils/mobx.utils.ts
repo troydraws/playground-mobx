@@ -114,6 +114,11 @@ export type ObservableWrapperOptions = {
   autoBind?: boolean,
 }
 
+/**
+ * An observable store where functions are treated as states in the store and thus writable and observable.
+ * Two $ signs are used, because this is one level more abstract than the usual controllers.
+ * For model factory and controller abstractions, a single $ sign is used for meta-level fields and methods.
+ */
 export type ObservableStore<T extends AnyObject = AnyObject> = T & {
   $$writableKeys: StringKeyList<T>,
   $$debug?: () => void;
@@ -151,7 +156,7 @@ const _wrap = <T extends AnyObject = AnyObject>(
     get $$writableKeys() {
       return Object.entries(source).filter(e => e[1]?.writable !== false).map(e => e[0]);
     }
-  });
+  } as Partial<ObservableStore<T>>);
 
   if (isDevelopment) {
     extendObservable(s, {
